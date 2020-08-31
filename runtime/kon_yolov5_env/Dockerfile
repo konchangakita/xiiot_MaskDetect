@@ -20,7 +20,7 @@ RUN pip install -qr yolov5/requirements.txt
 # error対策
 ENV MPLCONFIGDIR=/tmp
 
-# 学習済みパラメータ maskdetect_yolov5x.pt
+# 学習済みパラメータ maskdetect_yolov5x.pt別途入手
 COPY ./app/ /yolo/yolov5/
 
 # Containers should NOT run as root as a good practice
