@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  #namespace: kon-ns
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+  - name: rest
+    port: 9200
+  - name: inter-node
+    port: 9300
+---
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata:
+  name: elasticsearch
+  #namespace: kon-ns
+spec:
+  serviceName: elasticsearch
+  selector:
+    matchLabels:
+      app: elasticsearch
+  replicas: 1
+  template:
+    metadata:
+      name: elasticsearch
+      labels:
+        app: elasticsearch
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: elasticsearch
+        image: elasticsearch:7.9.1
+        ports:
+        - containerPort: 9200
+        env:
+        - name: "discovery.type"
+          value: "single-node"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  #namespace: kon-ns
+spec:
+  selector:
+    app: kibana
+  ports:
+  - name: http
+    port: 5601
+---
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata:
+  name: kibana
+  #namespace: kon-ns
+spec:
+  serviceName: kibana
+  selector:
+    matchLabels:
+      app: kibana
+  replicas: 1
+  template:
+    metadata:
+      name: kibana
+      labels:
+        app: kibana
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: kibana
+        image: kibana:7.9.1
+        ports:
+        - containerPort: 5601
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  #namespace: kon-ns
+  labels:
+    k8s-app: filebeat
+data:
+  filebeat.yml: |-
+    filebeat.inputs:
+    - type: kafka
+      hosts: ["{{.Services.Kafka.Endpoint}}"]
+      #hosts: ["192.168.199.99:32092"]
+      topics: ["sendes"]
+      group_id: "xiiot-kafka"
+
+    output.elasticsearch:
+      hosts: ['${ELASTICSEARCH_HOST:elasticsearch}:${ELASTICSEARCH_PORT:9200}']
+      username: ${ELASTICSEARCH_USERNAME}
+      password: ${ELASTICSEARCH_PASSWORD}
+      pipeline: "pipeline_mask"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: filebeat
+  #namespace: kon-ns
+spec:
+  serviceName: filebeat
+  selector:
+    matchLabels:
+      app: filebeat
+  replicas: 1
+  template:
+    metadata:
+      name: filebeat
+      labels:
+        app: filebeat
+    spec:
+      terminationGracePeriodSeconds: 30
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:7.9.1
+        args: [
+          "-c", "/etc/filebeat.yml",
+          "-e",
+        ]
+        env:
+        - name: ELASTICSEARCH_HOST
+          value: elasticsearch
+        - name: ELASTICSEARCH_PORT
+          value: "9200"
+        - name: ELASTICSEARCH_USERNAME
+          value: elastic
+        - name: ELASTICSEARCH_PASSWORD
+          value: changeme
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          runAsUser: 0
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/filebeat.yml
+          readOnly: true
+          subPath: filebeat.yml
+      volumes:
+      - name: config
+        configMap:
+          defaultMode: 0640
+          name: filebeat-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana-front
+spec:
+  selector:
+    matchLabels:
+      app: kibana-front
+  template:
+    metadata:
+      labels:
+        app: kibana-front
+    spec:
+      containers:
+      - name: kibana-front
+        image: alpine/socat
+        args: ["TCP-LISTEN:15601,fork,reuseaddr","TCP:kibana:5601"]
+        ports:
+        - containerPort: 15601
+          hostPort: 15601

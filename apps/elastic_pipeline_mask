@@ -1,0 +1,30 @@
+# Dev toolでつくるとき用
+PUT /_ingest/pipeline/pipeline_mask
+{
+  "description" : "",
+  "processors" : [
+    {
+      "json": {
+        "field": "message",
+        "target_field": "message_json"
+      },
+      "grok": {
+        "field": "message_json.now_dt",
+        "patterns": [
+          "%{TIMESTAMP_ISO8601:message_json.timestamp}"
+        ]
+      },
+      "date": {
+        "field": "message_json.timestamp",
+        "formats": [
+          "yyyy-MM-dd HH:mm:ss"
+        ],
+        "timezone": "Asia/Tokyo"
+      },
+      "remove": {
+        "field": "message_json.timestamp"
+      }
+    }
+  ]
+}
+

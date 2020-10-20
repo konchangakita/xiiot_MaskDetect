@@ -6,6 +6,7 @@ import io
 import numpy as np
 from numpy import random
 import cv2
+import datetime
 
 # for yolov5 import
 import sys
@@ -22,8 +23,10 @@ from utils import datasets
 device = 'cpu'
 weights = '/yolo/yolov5/maskdetect_yolov5x.pt' # self trained model
 
-
 def detect_mask(data):
+    total_num = 0
+    detect_label = {}
+
     image = Image.open(io.BytesIO(base64.b64decode(data))).convert('RGB')
     cvImage = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
@@ -48,8 +51,12 @@ def detect_mask(data):
     # Apply NMS
     pred = non_max_suppression(pred, 0.4, 0.5, classes=0, agnostic=True)
 
-    # input image
-    im0 = cvImage
+    # input image to resize(854x480)
+    #im0 = cvImage
+    new_w = 854
+    r = new_w / cvImage.shape[1]
+    new_h = int(cvImage.shape[0] * r)
+    im0 = cv2.resize(cvImage, (new_w, new_h))
 
     s = '%gx%g ' % img.shape[2:]  # print string
     gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
@@ -57,19 +64,19 @@ def detect_mask(data):
     det = pred[0]
     logging.info(det)
     if det is not None:
+
         # Rescale boxes from img_size to im0 size
         det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
-        logging.info(det.size(0))
-        # Print results
+        total_num = det.size(0)
+        logging.info(total_num)
+
+        # detections per class results
         uni = det[:, -1].int()
         unit = torch.unique(uni)
-        for c in uni:
-            n = (det[:, -1] == c).sum()  # detections per class
-            print(n)
-            s += '%g %ss, ' % (n, names[int(c)])  # add to string
-            print(s)
-
+        for c in unit:
+            detect_label[names[int(c)]] = int((det[:, -1] == c).sum())  
+    
         # Write results
         for *xyxy, conf, cls in reversed(det):
             label = '%s %.2f' % (names[int(cls)], conf)
@@ -84,15 +91,23 @@ def detect_mask(data):
     img_encoded = cv2.imencode('.jpg', im0)[1] # (H,W,Ch)
     encodedStr = base64.b64encode(img_encoded).decode('ascii')
     mask_img = encodedStr
-    return mask_img
+    return mask_img, total_num, detect_label
 
 
 def main(ctx, msg):
     logging.info("***************** mask detect start *****************")
+
+    # Sevice Domainをとってきたい。。。けどわからない
+    logging.info("Parameters: %s", ctx.get_config())
   
     # recieve a image from raw-to-jpg
-    rmsg = json.loads(msg)
-    rmsg['mask'] = detect_mask(rmsg['data'])
+    rmsg = {}
+    input_data = json.loads(msg)
+    rmsg['mask_img'], rmsg['total_num'], rmsg['detect_label'] = detect_mask(input_data['data'])
+
+    now1 = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))) # Japan time
+    rmsg['now_dt'] = "{0:%Y-%m-%d %H:%M:%S }".format(now1) + str(now1.tzinfo)
+    rmsg['img_name'] = "{0:%Y%m%d%H%M%S}.jpg".format(now1)
 
     logging.info("***************** mask detect end *****************")
     rmsg = json.dumps(rmsg).encode('utf-8')

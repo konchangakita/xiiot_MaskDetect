@@ -28,10 +28,12 @@ spec:
       labels:
         app: nodered
     spec:
+      securityContext:
+        fsGroup: 1000
       terminationGracePeriodSeconds: 10
       containers:
       - name: nodered
-        image: nodered/node-red-docker
+        image: nodered/node-red
         ports:
         - containerPort: 1880
         volumeMounts:
